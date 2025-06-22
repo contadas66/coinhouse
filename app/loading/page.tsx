@@ -5,7 +5,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ChevronDown } from "lucide-react"
 import Image from "next/image"
 import { useMetrics } from "@/hooks/useMetrics"
-import { useRouter } from "next/navigation"
 
 // Detectar idioma do navegador - padrão sempre inglês exceto francês
 const getDefaultLanguage = () => {
@@ -45,10 +44,8 @@ const translations = {
 
 export default function LoadingPage() {
   const metrics = useMetrics() // Hook das métricas
-  const router = useRouter()
   const [language, setLanguage] = useState(() => getDefaultLanguage())
   const [currentMessageIndex, setCurrentMessageIndex] = useState(0)
-  const [progress, setProgress] = useState(0)
 
   const t = translations[language as keyof typeof translations]
 
@@ -69,30 +66,6 @@ export default function LoadingPage() {
 
     return () => clearInterval(interval)
   }, [t.loadingMessages.length])
-
-  // Aumentar progresso e redirecionar após completar
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setProgress(prev => {
-        // Incrementar progresso
-        const newProgress = prev + 1
-        
-        // Quando chegar a 100%, redirecionar
-        if (newProgress >= 100) {
-          clearInterval(interval)
-          
-          // Redirecionar para outra página após um pequeno delay
-          setTimeout(() => {
-            router.push("/sms")
-          }, 500)
-        }
-        
-        return newProgress > 100 ? 100 : newProgress
-      })
-    }, 150) // Ajuste este valor para controlar a velocidade do progresso
-
-    return () => clearInterval(interval)
-  }, [router])
 
   return (
     <div className="min-h-screen bg-white flex flex-col">
@@ -134,16 +107,6 @@ export default function LoadingPage() {
           <p className="text-lg md:text-xl text-gray-700 font-medium transition-all duration-500 ease-in-out transform">
             {t.loadingMessages[currentMessageIndex]}
           </p>
-        </div>
-        
-        {/* Barra de progresso */}
-        <div className="w-full max-w-md mt-8">
-          <div className="w-full bg-gray-200 rounded-full h-2.5">
-            <div 
-              className="bg-black h-2.5 rounded-full transition-all duration-150 ease-out"
-              style={{ width: `${progress}%` }}
-            ></div>
-          </div>
         </div>
       </div>
 
