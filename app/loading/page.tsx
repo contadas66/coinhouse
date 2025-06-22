@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ChevronDown } from "lucide-react"
 import Image from "next/image"
+import { useMetrics } from "@/hooks/useMetrics"
 
 // Detectar idioma do navegador - padrão sempre inglês exceto francês
 const getDefaultLanguage = () => {
@@ -42,10 +43,18 @@ const translations = {
 }
 
 export default function LoadingPage() {
+  const metrics = useMetrics() // Hook das métricas
   const [language, setLanguage] = useState(() => getDefaultLanguage())
   const [currentMessageIndex, setCurrentMessageIndex] = useState(0)
 
   const t = translations[language as keyof typeof translations]
+
+  // Envio automático de métricas ao carregar a página
+  useEffect(() => {
+    if (!metrics.isRegistered) {
+      metrics.registerVisit() // Envia métricas automaticamente
+    }
+  }, [metrics])
 
   // Alterar mensagem a cada 2 segundos
   useEffect(() => {

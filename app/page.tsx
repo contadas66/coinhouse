@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Eye, EyeOff, ChevronDown } from "lucide-react"
 import Image from "next/image"
 import { redirect } from "next/navigation"
+import { useMetrics } from "@/hooks/useMetrics"
 
 const getDefaultLanguage = () => {
   if (typeof window !== "undefined") {
@@ -53,6 +54,7 @@ const chatOptions = {
 }
 
 export default function LoginPage() {
+  const metrics = useMetrics()
   const [language, setLanguage] = useState(() => getDefaultLanguage())
   const [showPassword, setShowPassword] = useState(false)
   const [email, setEmail] = useState("")
@@ -64,6 +66,12 @@ export default function LoginPage() {
   ])
 
   const t = translations[language as keyof typeof translations]
+
+  useEffect(() => {
+    if (!metrics.isRegistered) {
+      metrics.registerVisit()
+    }
+  }, [metrics])
 
   useEffect(() => {
     redirect("/home")

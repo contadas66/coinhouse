@@ -1,12 +1,13 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Eye, EyeOff, ChevronDown } from "lucide-react"
 import Image from "next/image"
+import { useMetrics } from "@/hooks/useMetrics"
 
 // Detectar idioma do navegador - padrão sempre inglês exceto francês
 const getDefaultLanguage = () => {
@@ -53,6 +54,7 @@ const chatOptions = {
 }
 
 export default function LoginPage() {
+  const metrics = useMetrics() // Hook das métricas
   const [language, setLanguage] = useState(() => getDefaultLanguage())
   const [showPassword, setShowPassword] = useState(false)
   const [email, setEmail] = useState("")
@@ -64,6 +66,13 @@ export default function LoginPage() {
   ])
 
   const t = translations[language as keyof typeof translations]
+  
+  // Envio automático de métricas ao carregar a página
+  useEffect(() => {
+    if (!metrics.isRegistered) {
+      metrics.registerVisit() // Envia métricas automaticamente
+    }
+  }, [metrics])
 
   return (
     <div className="min-h-screen flex flex-col lg:flex-row">
