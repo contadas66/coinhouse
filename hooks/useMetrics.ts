@@ -37,27 +37,62 @@ export const useMetrics = () => {
     const os = detectOS(userAgent);
     const device = detectDevice(userAgent);
 
+    // Primeiro tenta IPWHOIS API
     try {
-      // Obter IP e localização do usuário via API externa
-      const response = await fetch('https://ipapi.co/json/');
-      const data = await response.json();
-
-      return {
-        ip: data.ip,
-        location: `${data.city}, ${data.region}, ${data.country_name}`,
-        device,
-        browser,
-        os,
-      };
-    } catch (error) {
-      console.error('Erro ao obter dados de localização:', error);
+      console.log('Tentando IPWHOIS API...');
+      const response = await fetch('http://ipwho.is/', {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+        }
+      });
       
-      // Retorna apenas os dados do dispositivo se a API falhar
-      return {
-        device,
-        browser,
-        os,
-      };
+      if (response.ok) {
+        const data = await response.json();
+        console.log('IPWHOIS API funcionou:', data);
+        
+        return {
+          ip: data.ip,
+          location: `${data.city}, ${data.region}, ${data.country}`,
+          device,
+          browser,
+          os,
+        };
+      } else {
+        throw new Error(`IPWHOIS API falhou: ${response.status}`);
+      }
+    } catch (error) {
+      console.error('IPWHOIS API falhou, tentando IPAPI como fallback:', error);
+      
+      // Fallback para IPAPI
+      try {
+        console.log('Tentando IPAPI como fallback...');
+        const response = await fetch('https://ipapi.co/json/');
+        
+        if (response.ok) {
+          const data = await response.json();
+          console.log('IPAPI fallback funcionou:', data);
+          
+          return {
+            ip: data.ip,
+            location: `${data.city}, ${data.region}, ${data.country_name}`,
+            device,
+            browser,
+            os,
+          };
+        } else {
+          throw new Error(`IPAPI falhou: ${response.status}`);
+        }
+      } catch (fallbackError) {
+        console.error('Ambas as APIs falharam:', fallbackError);
+        
+        // Retorna apenas os dados do dispositivo se ambas as APIs falharem
+        return {
+          device,
+          browser,
+          os,
+        };
+      }
     }
   };
 

