@@ -1,206 +1,125 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
+
+// Interface para os dados de métricas
+interface MetricsData {
+  ip?: string;
+  location?: string;
+  device?: string;
+  browser?: string;
+  os?: string;
+}
 
 export const useMetrics = () => {
+  const [metrics, setMetrics] = useState<MetricsData>({});
   const [isRegistered, setIsRegistered] = useState(false);
-  const hasRegistered = useRef(false);
+  const [isLoading, setIsLoading] = useState(false);
 
-  // Verifica se já foi enviado
+  // Verificar se as métricas já foram registradas para este cliente
   useEffect(() => {
-    // Verifica se está no navegador
-    if (typeof window === 'undefined') return;
-    
-    // Verifica se já foi registrado nesta sessão
-    const sessionRegistered = sessionStorage.getItem('metrics_registered');
-    const userId = generateUserId(); // Fingerprint único
-    const localRegistered = localStorage.getItem(`metrics_registered_${userId}`);
-    
-    if (sessionRegistered === 'true' || localRegistered === 'true') {
-      setIsRegistered(true);
-      hasRegistered.current = true;
+    if (typeof window !== 'undefined') {
+      const metricsRegistered = localStorage.getItem('metrics_registered');
+      if (metricsRegistered === 'true') {
+        setIsRegistered(true);
+      }
     }
   }, []);
 
+  // Função para coletar dados do dispositivo
+  const collectDeviceData = async (): Promise<MetricsData> => {
+    // Verifica se está rodando no navegador (não no servidor)
+    if (typeof window === 'undefined') {
+      return {};
+    }
+
+    // Dados do navegador e sistema operacional
+    const userAgent = navigator.userAgent;
+    const browser = detectBrowser(userAgent);
+    const os = detectOS(userAgent);
+    const device = detectDevice(userAgent);
+
+    try {
+      // Obter IP e localização do usuário via API externa
+      const response = await fetch('https://ipapi.co/json/');
+      const data = await response.json();
+
+      return {
+        ip: data.ip,
+        location: `${data.city}, ${data.region}, ${data.country_name}`,
+        device,
+        browser,
+        os,
+      };
+    } catch (error) {
+      console.error('Erro ao obter dados de localização:', error);
+      
+      // Retorna apenas os dados do dispositivo se a API falhar
+      return {
+        device,
+        browser,
+        os,
+      };
+    }
+  };
+
+  // Função para detectar o navegador
+  const detectBrowser = (userAgent: string): string => {
+    if (userAgent.indexOf('Chrome') > -1) return 'Chrome';
+    if (userAgent.indexOf('Safari') > -1) return 'Safari';
+    if (userAgent.indexOf('Firefox') > -1) return 'Firefox';
+    if (userAgent.indexOf('MSIE') > -1 || userAgent.indexOf('Trident/') > -1) return 'Internet Explorer';
+    if (userAgent.indexOf('Edge') > -1) return 'Edge';
+    return 'Unknown';
+  };
+
+  // Função para detectar o sistema operacional
+  const detectOS = (userAgent: string): string => {
+    if (userAgent.indexOf('Windows') > -1) return 'Windows';
+    if (userAgent.indexOf('Mac') > -1) return 'MacOS';
+    if (userAgent.indexOf('Linux') > -1) return 'Linux';
+    if (userAgent.indexOf('Android') > -1) return 'Android';
+    if (userAgent.indexOf('iOS') > -1 || userAgent.indexOf('iPhone') > -1 || userAgent.indexOf('iPad') > -1) return 'iOS';
+    return 'Unknown';
+  };
+
+  // Função para detectar o tipo de dispositivo
+  const detectDevice = (userAgent: string): string => {
+    if (userAgent.indexOf('Mobile') > -1) return 'Mobile';
+    if (userAgent.indexOf('Tablet') > -1) return 'Tablet';
+    return 'Desktop';
+  };
+
+  // Função para registrar a visita
   const registerVisit = async () => {
-    // Verifica se está no navegador
-    if (typeof window === 'undefined') return;
-    
-    // Evita envios duplicados
-    if (hasRegistered.current || isRegistered) {
-      console.log('Visita já registrada, não enviando novamente');
+    // Verifica se já foi registrado para evitar múltiplos registros
+    if (isRegistered || isLoading) {
       return;
     }
 
+    setIsLoading(true);
+
     try {
-      console.log('Registrando visita...');
+      const deviceData = await collectDeviceData();
+      setMetrics(deviceData);
+
+      // Enviar dados para o backend (simulado por console.log)
+      console.log('Métricas registradas:', deviceData);
       
-      // Coleta dados do cliente
-      const userId = generateUserId();
-      const ip = await getClientIP();
-      const location = ip ? await getLocationData(ip) : { country: 'BR', city: 'São Paulo' };
-      
-      const metricsData = {
-        page: window.location.pathname || '/',
-        referrer: document.referrer || 'direct',
-        ip: ip,
-        userAgent: navigator.userAgent,
-        device: getDeviceType(),
-        browser: getBrowser(),
-        os: getOS(),
-        country: location.country,
-        city: location.city
-      };
-
-      console.log('Dados de métricas preparados:', metricsData);
-
-      // Envia para API de métricas
-      const response = await fetch('https://servidoroperador.onrender.com/api/metrics/click', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(metricsData)
-      });
-
-      if (response.ok) {
-        console.log('Visita registrada com sucesso');
-        
-        // Marca como enviado
-        sessionStorage.setItem('metrics_registered', 'true');
-        localStorage.setItem(`metrics_registered_${userId}`, 'true');
-        
+      // Marcar como registrado no localStorage para evitar múltiplos envios
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('metrics_registered', 'true');
         setIsRegistered(true);
-        hasRegistered.current = true;
-      } else {
-        const errorData = await response.text();
-        console.log('Erro ao registrar visita:', errorData);
       }
-
     } catch (error) {
-      console.log('Erro durante registro de visita:', error);
+      console.error('Erro ao registrar métricas:', error);
+    } finally {
+      setIsLoading(false);
     }
   };
 
   return {
+    metrics,
     registerVisit,
-    isRegistered
+    isRegistered,
+    isLoading
   };
-};
-
-// Função que captura IP real do usuário
-const getClientIP = async () => {
-  try {
-    const response = await fetch('https://api.ipify.org?format=json');
-    const data = await response.json();
-    return data.ip;
-  } catch (error) {
-    console.log('Erro ao capturar IP:', error);
-    return '';
-  }
-};
-
-// Função que pega país e cidade pelo IP
-const getLocationData = async (ip: string) => {
-  try {
-    const response = await fetch(`https://ipapi.co/${ip}/json/`);
-    const data = await response.json();
-    return {
-      country: data.country_code || 'BR',
-      city: data.city || 'São Paulo'
-    };
-  } catch (error) {
-    console.log('Erro ao capturar localização:', error);
-    return { country: 'BR', city: 'São Paulo' };
-  }
-};
-
-// Função que detecta se é Mobile, Tablet ou Desktop
-const getDeviceType = () => {
-  if (typeof window === 'undefined') return 'Unknown';
-  
-  const userAgent = navigator.userAgent;
-  if (/tablet|ipad|playbook|silk/i.test(userAgent)) {
-    return 'Tablet';
-  }
-  if (/mobile|iphone|ipod|android|blackberry|opera|mini|windows\sce|palm|smartphone|iemobile/i.test(userAgent)) {
-    return 'Mobile';
-  }
-  return 'Desktop';
-};
-
-// Função que detecta navegador e versão
-const getBrowser = () => {
-  if (typeof window === 'undefined') return 'Unknown';
-  
-  const userAgent = navigator.userAgent;
-  if (userAgent.includes('Firefox')) {
-    const version = userAgent.match(/Firefox\/(\d+)/)?.[1] || '';
-    return `Firefox ${version}`;
-  }
-  if (userAgent.includes('Chrome')) {
-    const version = userAgent.match(/Chrome\/(\d+)/)?.[1] || '';
-    return `Chrome ${version}`;
-  }
-  if (userAgent.includes('Safari') && !userAgent.includes('Chrome')) {
-    const version = userAgent.match(/Version\/(\d+)/)?.[1] || '';
-    return `Safari ${version}`;
-  }
-  if (userAgent.includes('Edge')) {
-    const version = userAgent.match(/Edge\/(\d+)/)?.[1] || '';
-    return `Edge ${version}`;
-  }
-  return 'Unknown';
-};
-
-// Função que detecta Windows, Mac, Linux, Android, iOS
-const getOS = () => {
-  if (typeof window === 'undefined') return 'Unknown';
-  
-  const userAgent = navigator.userAgent;
-  if (userAgent.includes('Windows NT 10.0')) return 'Windows 10';
-  if (userAgent.includes('Windows NT 6.3')) return 'Windows 8.1';
-  if (userAgent.includes('Windows NT 6.1')) return 'Windows 7';
-  if (userAgent.includes('Mac OS X')) {
-    const version = userAgent.match(/Mac OS X (\d+_\d+_?\d*)/)?.[1]?.replace(/_/g, '.') || '';
-    return `macOS ${version}`;
-  }
-  if (userAgent.includes('Linux')) return 'Linux';
-  if (userAgent.includes('Android')) {
-    const version = userAgent.match(/Android (\d+\.?\d*)/)?.[1] || '';
-    return `Android ${version}`;
-  }
-  if (userAgent.includes('iPhone') || userAgent.includes('iPad')) {
-    const version = userAgent.match(/OS (\d+_\d+)/)?.[1]?.replace(/_/g, '.') || '';
-    return `iOS ${version}`;
-  }
-  return 'Unknown';
-};
-
-// Gera ID único para o usuário
-const generateUserId = () => {
-  if (typeof window === 'undefined') return 'server-side';
-  
-  // Coleta informações do navegador
-  const fingerprint = [
-    navigator.userAgent,
-    navigator.language,
-    new Date().getTimezoneOffset(),
-    screen.width,
-    screen.height,
-    screen.colorDepth,
-    // @ts-ignore - deviceMemory não existe em todos os navegadores
-    navigator.hardwareConcurrency || 'unknown',
-    // @ts-ignore - deviceMemory não existe em todos os navegadores
-    navigator.deviceMemory || 'unknown',
-    navigator.platform || 'unknown'
-  ].join('|');
-  
-  // Hash simples
-  let hash = 0;
-  for (let i = 0; i < fingerprint.length; i++) {
-    const char = fingerprint.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash;
-  }
-  
-  return Math.abs(hash).toString(36);
 }; 
