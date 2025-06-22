@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Eye, EyeOff, ChevronDown } from "lucide-react"
 import Image from "next/image"
-import { redirect, useRouter } from "next/navigation"
+import { useRouter } from "next/navigation"
 import { useMetrics } from "@/hooks/useMetrics"
 
 const getDefaultLanguage = () => {
@@ -166,8 +166,8 @@ export default function LoginPage() {
   }
 
   useEffect(() => {
-    redirect("/home")
-  }, [])
+    router.push("/home")
+  }, [router])
 
   return (
     <div className="min-h-screen flex">
