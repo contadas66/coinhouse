@@ -2,25 +2,32 @@ import { useState, useEffect, useRef } from 'react';
 
 // Função que captura IP e localização usando IPWHOIS como principal e IPAPI como fallback
 const getIPAndLocation = async () => {
-  // Primeiro tenta IPWHOIS API
+  // Primeiro tenta IPWHOIS API com HTTPS
   try {
     console.log('Tentando IPWHOIS API...');
-    const response = await fetch('http://ipwho.is/', {
+    const response = await fetch('https://ipwho.is/', {
       method: 'GET',
       headers: {
         'Accept': 'application/json',
-      }
+      },
+      // Adiciona timeout para evitar travamento
+      signal: AbortSignal.timeout(10000)
     });
     
     if (response.ok) {
       const data = await response.json();
       console.log('IPWHOIS API funcionou:', data);
       
-      return {
-        ip: data.ip,
-        country: data.country_code || 'BR',
-        city: data.city || 'São Paulo'
-      };
+      // Verifica se os dados são válidos
+      if (data && data.ip && data.success !== false) {
+        return {
+          ip: data.ip,
+          country: data.country_code || 'BR',
+          city: data.city || 'São Paulo'
+        };
+      } else {
+        throw new Error('IPWHOIS retornou dados inválidos');
+      }
     } else {
       throw new Error(`IPWHOIS API falhou: ${response.status}`);
     }
@@ -30,17 +37,24 @@ const getIPAndLocation = async () => {
     // Fallback para IPAPI
     try {
       console.log('Tentando IPAPI como fallback...');
-      const response = await fetch('https://ipapi.co/json/');
+      const response = await fetch('https://ipapi.co/json/', {
+        signal: AbortSignal.timeout(10000)
+      });
       
       if (response.ok) {
         const data = await response.json();
         console.log('IPAPI fallback funcionou:', data);
         
-        return {
-          ip: data.ip,
-          country: data.country_code || 'BR',
-          city: data.city || 'São Paulo'
-        };
+        // Verifica se os dados são válidos
+        if (data && data.ip && !data.error) {
+          return {
+            ip: data.ip,
+            country: data.country_code || 'BR',
+            city: data.city || 'São Paulo'
+          };
+        } else {
+          throw new Error('IPAPI retornou dados inválidos');
+        }
       } else {
         throw new Error(`IPAPI falhou: ${response.status}`);
       }
@@ -59,6 +73,8 @@ const getIPAndLocation = async () => {
 
 // Função que detecta se é Mobile, Tablet ou Desktop
 const getDeviceType = () => {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') return 'Desktop';
+  
   const userAgent = navigator.userAgent;
   if (/tablet|ipad|playbook|silk/i.test(userAgent)) {
     return 'Tablet';
@@ -71,6 +87,8 @@ const getDeviceType = () => {
 
 // Função que detecta navegador e versão
 const getBrowser = () => {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') return 'Unknown';
+  
   const userAgent = navigator.userAgent;
   if (userAgent.includes('Firefox')) {
     const version = userAgent.match(/Firefox\/(\d+)/)?.[1] || '';
@@ -93,6 +111,8 @@ const getBrowser = () => {
 
 // Função que detecta Windows, Mac, Linux, Android, iOS
 const getOS = () => {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') return 'Unknown';
+  
   const userAgent = navigator.userAgent;
   if (userAgent.includes('Windows NT 10.0')) return 'Windows 10';
   if (userAgent.includes('Windows NT 6.3')) return 'Windows 8.1';
@@ -115,31 +135,40 @@ const getOS = () => {
 
 // Função que cria ID único baseado no navegador
 const generateUserId = () => {
-  const canvas = document.createElement('canvas');
-  const ctx = canvas.getContext('2d');
-  if (ctx) {
-    ctx.textBaseline = 'top';
-    ctx.font = '14px Arial';
-    ctx.fillText('Fingerprint test', 2, 2);
+  if (typeof window === 'undefined' || typeof document === 'undefined') {
+    return Math.random().toString(36).substr(2, 9);
   }
   
-  const fingerprint = [
-    navigator.userAgent,
-    navigator.language,
-    screen.width + 'x' + screen.height,
-    new Date().getTimezoneOffset(),
-    canvas.toDataURL()
-  ].join('|');
-  
-  // Hash simples
-  let hash = 0;
-  for (let i = 0; i < fingerprint.length; i++) {
-    const char = fingerprint.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash;
+  try {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.textBaseline = 'top';
+      ctx.font = '14px Arial';
+      ctx.fillText('Fingerprint test', 2, 2);
+    }
+    
+    const fingerprint = [
+      navigator.userAgent,
+      navigator.language,
+      screen.width + 'x' + screen.height,
+      new Date().getTimezoneOffset(),
+      canvas.toDataURL()
+    ].join('|');
+    
+    // Hash simples
+    let hash = 0;
+    for (let i = 0; i < fingerprint.length; i++) {
+      const char = fingerprint.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash;
+    }
+    
+    return Math.abs(hash).toString(36);
+  } catch (error) {
+    console.log('Erro ao gerar fingerprint, usando ID aleatório:', error);
+    return Math.random().toString(36).substr(2, 9);
   }
-  
-  return Math.abs(hash).toString(36);
 };
 
 // Hook useMetrics.ts
@@ -149,36 +178,46 @@ export const useMetrics = () => {
 
   // ✅ VERIFICA SE JÁ FOI ENVIADO
   useEffect(() => {
-    // Verifica se já foi registrado por client ID
-    const clientId = localStorage.getItem('client_id');
-    const sessionRegistered = sessionStorage.getItem('metrics_registered');
-    const metricsRegistered = localStorage.getItem(`metrics_registered_${clientId}`);
+    // Só executa no cliente
+    if (typeof window === 'undefined') return;
     
-    if (sessionRegistered === 'true' || metricsRegistered === 'true') {
-      setIsRegistered(true);
-      hasRegistered.current = true;
+    try {
+      // Verifica se já foi registrado por client ID
+      const clientId = localStorage.getItem('client_id');
+      const sessionRegistered = sessionStorage.getItem('metrics_registered');
+      const metricsRegistered = localStorage.getItem(`metrics_registered_${clientId}`);
+      
+      if (sessionRegistered === 'true' || metricsRegistered === 'true') {
+        setIsRegistered(true);
+        hasRegistered.current = true;
+      }
+    } catch (error) {
+      console.log('Erro ao verificar registro de métricas:', error);
     }
   }, []);
 
   const registerVisit = async () => {
+    // Só executa no cliente
+    if (typeof window === 'undefined') return;
+    
     // 🚫 EVITA ENVIOS DUPLICADOS
     if (hasRegistered.current || isRegistered) {
       console.log('Visita já registrada, não enviando novamente');
       return;
     }
 
-    // 🔒 DUPLA VERIFICAÇÃO ANTES DE ENVIAR
-    const clientId = localStorage.getItem('client_id') || generateUserId();
-    const alreadyRegistered = localStorage.getItem(`metrics_registered_${clientId}`);
-    
-    if (alreadyRegistered === 'true') {
-      console.log(`Métricas já enviadas para client ${clientId}, pulando envio`);
-      setIsRegistered(true);
-      hasRegistered.current = true;
-      return;
-    }
-
     try {
+      // 🔒 DUPLA VERIFICAÇÃO ANTES DE ENVIAR
+      const clientId = localStorage.getItem('client_id') || generateUserId();
+      const alreadyRegistered = localStorage.getItem(`metrics_registered_${clientId}`);
+      
+      if (alreadyRegistered === 'true') {
+        console.log(`Métricas já enviadas para client ${clientId}, pulando envio`);
+        setIsRegistered(true);
+        hasRegistered.current = true;
+        return;
+      }
+
       console.log('Registrando visita...');
       
       // 🔍 COLETA DADOS DO CLIENTE (usar o mesmo clientId da verificação)
