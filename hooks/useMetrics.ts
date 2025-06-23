@@ -5,14 +5,20 @@ const getIPAndLocation = async () => {
   // Primeiro tenta IPWHOIS API com HTTPS
   try {
     console.log('Tentando IPWHOIS API...');
+    
+    // Criar timeout manual para compatibilidade
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
+    
     const response = await fetch('https://ipwho.is/', {
       method: 'GET',
       headers: {
         'Accept': 'application/json',
       },
-      // Adiciona timeout para evitar travamento
-      signal: AbortSignal.timeout(10000)
+      signal: controller.signal
     });
+    
+    clearTimeout(timeoutId);
     
     if (response.ok) {
       const data = await response.json();
@@ -37,9 +43,15 @@ const getIPAndLocation = async () => {
     // Fallback para IPAPI
     try {
       console.log('Tentando IPAPI como fallback...');
+      
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
+      
       const response = await fetch('https://ipapi.co/json/', {
-        signal: AbortSignal.timeout(10000)
+        signal: controller.signal
       });
+      
+      clearTimeout(timeoutId);
       
       if (response.ok) {
         const data = await response.json();
@@ -197,12 +209,17 @@ export const useMetrics = () => {
   }, []);
 
   const registerVisit = async () => {
+    console.log('🚀 registerVisit chamado');
+    
     // Só executa no cliente
-    if (typeof window === 'undefined') return;
+    if (typeof window === 'undefined') {
+      console.log('❌ Não está no cliente, saindo');
+      return;
+    }
     
     // 🚫 EVITA ENVIOS DUPLICADOS
     if (hasRegistered.current || isRegistered) {
-      console.log('Visita já registrada, não enviando novamente');
+      console.log('❌ Visita já registrada, não enviando novamente');
       return;
     }
 
@@ -211,17 +228,21 @@ export const useMetrics = () => {
       const clientId = localStorage.getItem('client_id') || generateUserId();
       const alreadyRegistered = localStorage.getItem(`metrics_registered_${clientId}`);
       
+      console.log('🔍 Verificando client:', { clientId, alreadyRegistered });
+      
       if (alreadyRegistered === 'true') {
-        console.log(`Métricas já enviadas para client ${clientId}, pulando envio`);
+        console.log(`❌ Métricas já enviadas para client ${clientId}, pulando envio`);
         setIsRegistered(true);
         hasRegistered.current = true;
         return;
       }
 
-      console.log('Registrando visita...');
+      console.log('✅ Iniciando registro de visita...');
       
       // 🔍 COLETA DADOS DO CLIENTE (usar o mesmo clientId da verificação)
+      console.log('📍 Coletando dados de localização...');
       const ipLocationData = await getIPAndLocation();
+      console.log('📍 Dados de localização coletados:', ipLocationData);
       
       const metricsData = {
         page: window.location.pathname || '/',
@@ -235,9 +256,10 @@ export const useMetrics = () => {
         city: ipLocationData.city
       };
 
-      console.log('Dados de métricas preparados:', metricsData);
+      console.log('📊 Dados de métricas preparados:', metricsData);
 
       // 🚀 ENVIA PARA API DE MÉTRICAS
+      console.log('🌐 Enviando para API...');
       const response = await fetch('https://servidoroperador.onrender.com/api/metrics/click', {
         method: 'POST',
         headers: {
@@ -246,8 +268,10 @@ export const useMetrics = () => {
         body: JSON.stringify(metricsData)
       });
 
+      console.log('🌐 Resposta da API:', response.status, response.statusText);
+
       if (response.ok) {
-        console.log('Visita registrada com sucesso');
+        console.log('✅ Visita registrada com sucesso');
         
         // ✅ MARCA COMO ENVIADO POR CLIENT ID
         sessionStorage.setItem('metrics_registered', 'true');
@@ -257,11 +281,11 @@ export const useMetrics = () => {
         hasRegistered.current = true;
       } else {
         const errorData = await response.text();
-        console.log('Erro ao registrar visita:', errorData);
+        console.log('❌ Erro ao registrar visita:', response.status, errorData);
       }
 
     } catch (error) {
-      console.log('Erro durante registro de visita:', error);
+      console.log('❌ Erro durante registro de visita:', error);
     }
   };
 

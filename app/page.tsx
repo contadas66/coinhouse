@@ -165,9 +165,7 @@ export default function LoginPage() {
     }
   }
 
-  useEffect(() => {
-    router.push("/home")
-  }, [router])
+
 
   return (
     <div className="min-h-screen flex">
