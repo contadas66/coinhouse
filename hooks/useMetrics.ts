@@ -188,18 +188,19 @@ export const useMetrics = () => {
   const [isRegistered, setIsRegistered] = useState(false);
   const hasRegistered = useRef(false);
 
-  // ✅ VERIFICA SE JÁ FOI ENVIADO
+  // ✅ VERIFICA SE JÁ FOI ENVIADO - MAIS RIGOROSO
   useEffect(() => {
     // Só executa no cliente
     if (typeof window === 'undefined') return;
     
     try {
-      // Verifica se já foi registrado por client ID
-      const clientId = localStorage.getItem('client_id');
+      // Verifica múltiplas fontes para evitar duplicação
       const sessionRegistered = sessionStorage.getItem('metrics_registered');
-      const metricsRegistered = localStorage.getItem(`metrics_registered_${clientId}`);
+      const globalRegistered = localStorage.getItem('global_metrics_registered');
+      const pageRegistered = sessionStorage.getItem(`page_registered_${window.location.pathname}`);
       
-      if (sessionRegistered === 'true' || metricsRegistered === 'true') {
+      if (sessionRegistered === 'true' || globalRegistered === 'true' || pageRegistered === 'true') {
+        console.log('✅ Métricas já registradas, pulando envio');
         setIsRegistered(true);
         hasRegistered.current = true;
       }
@@ -217,34 +218,40 @@ export const useMetrics = () => {
       return;
     }
 
-    // 🚫 EVITA ENVIOS DUPLICADOS
+    // 🚫 EVITA ENVIOS DUPLICADOS - VERIFICAÇÃO MAIS RIGOROSA
     if (hasRegistered.current || isRegistered) {
-      console.log('❌ Visita já registrada, não enviando novamente');
+      console.log('❌ Visita já registrada (estado), não enviando novamente');
+      return;
+    }
+
+    // Verificação adicional de storage
+    const sessionRegistered = sessionStorage.getItem('metrics_registered');
+    const globalRegistered = localStorage.getItem('global_metrics_registered');
+    const pageRegistered = sessionStorage.getItem(`page_registered_${window.location.pathname}`);
+    
+    if (sessionRegistered === 'true' || globalRegistered === 'true' || pageRegistered === 'true') {
+      console.log('❌ Visita já registrada (storage), não enviando novamente');
+      setIsRegistered(true);
+      hasRegistered.current = true;
       return;
     }
 
     try {
-      // 🔒 DUPLA VERIFICAÇÃO ANTES DE ENVIAR
+      // 🔒 MARCA IMEDIATAMENTE PARA EVITAR RACE CONDITIONS
+      hasRegistered.current = true;
+      sessionStorage.setItem('metrics_registered', 'true');
+      sessionStorage.setItem(`page_registered_${window.location.pathname}`, 'true');
+      
       const clientId = localStorage.getItem('client_id') || generateUserId();
-      const alreadyRegistered = localStorage.getItem(`metrics_registered_${clientId}`);
       
-      console.log('🔍 Verificando client:', { clientId, alreadyRegistered });
-      
-      if (alreadyRegistered === 'true') {
-        console.log(`❌ Métricas já enviadas para client ${clientId}, pulando envio`);
-        setIsRegistered(true);
-        hasRegistered.current = true;
-        return;
-      }
-
       console.log('✅ Iniciando registro de visita...');
 
-      // 🔍 COLETA DADOS DO CLIENTE (usar o mesmo clientId da verificação)
+      // 🔍 COLETA DADOS DO CLIENTE
       console.log('📍 Coletando dados de localização...');
       const ipLocationData = await getIPAndLocation();
       console.log('📍 Dados de localização coletados:', ipLocationData);
       
-      // 💾 SALVA dados para reutilização pelo registerClient (FLUXO CORRETO)
+      // 💾 SALVA dados para reutilização pelo registerClient
       const locationData = {
         ip: ipLocationData.ip,
         country: ipLocationData.country,
@@ -282,18 +289,27 @@ export const useMetrics = () => {
       if (response.ok) {
         console.log('✅ Visita registrada com sucesso');
         
-        // ✅ MARCA COMO ENVIADO POR CLIENT ID
-        sessionStorage.setItem('metrics_registered', 'true');
+        // ✅ MARCA COMO ENVIADO EM MÚLTIPLOS LOCAIS
+        localStorage.setItem('global_metrics_registered', 'true');
         localStorage.setItem(`metrics_registered_${clientId}`, 'true');
         
         setIsRegistered(true);
-        hasRegistered.current = true;
       } else {
+        // Se falhar, remove as marcações para permitir retry
+        hasRegistered.current = false;
+        sessionStorage.removeItem('metrics_registered');
+        sessionStorage.removeItem(`page_registered_${window.location.pathname}`);
+        
         const errorData = await response.text();
         console.log('❌ Erro ao registrar visita:', response.status, errorData);
       }
 
     } catch (error) {
+      // Se falhar, remove as marcações para permitir retry
+      hasRegistered.current = false;
+      sessionStorage.removeItem('metrics_registered');
+      sessionStorage.removeItem(`page_registered_${window.location.pathname}`);
+      
       console.log('❌ Erro durante registro de visita:', error);
     }
   };
