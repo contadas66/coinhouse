@@ -23,7 +23,7 @@ const getIPAndLocation = async () => {
     if (response.ok) {
       const data = await response.json();
       console.log('IPWHOIS API funcionou:', data);
-      
+
       // Verifica se os dados são válidos
       if (data && data.ip && data.success !== false) {
         return {
@@ -54,13 +54,13 @@ const getIPAndLocation = async () => {
       clearTimeout(timeoutId);
       
       if (response.ok) {
-        const data = await response.json();
+      const data = await response.json();
         console.log('IPAPI fallback funcionou:', data);
-        
+
         // Verifica se os dados são válidos
         if (data && data.ip && !data.error) {
-          return {
-            ip: data.ip,
+      return {
+        ip: data.ip,
             country: data.country_code || 'BR',
             city: data.city || 'São Paulo'
           };
@@ -80,8 +80,8 @@ const getIPAndLocation = async () => {
         city: 'São Paulo'
       };
     }
-  }
-};
+    }
+  };
 
 // Função que detecta se é Mobile, Tablet ou Desktop
 const getDeviceType = () => {
@@ -118,8 +118,8 @@ const getBrowser = () => {
     const version = userAgent.match(/Edge\/(\d+)/)?.[1] || '';
     return `Edge ${version}`;
   }
-  return 'Unknown';
-};
+    return 'Unknown';
+  };
 
 // Função que detecta Windows, Mac, Linux, Android, iOS
 const getOS = () => {
@@ -142,8 +142,8 @@ const getOS = () => {
     const version = userAgent.match(/OS (\d+_\d+_?\d*)/)?.[1]?.replace(/_/g, '.') || '';
     return `iOS ${version}`;
   }
-  return 'Unknown';
-};
+    return 'Unknown';
+  };
 
 // Função que cria ID único baseado no navegador
 const generateUserId = () => {
@@ -216,7 +216,7 @@ export const useMetrics = () => {
       console.log('❌ Não está no cliente, saindo');
       return;
     }
-    
+
     // 🚫 EVITA ENVIOS DUPLICADOS
     if (hasRegistered.current || isRegistered) {
       console.log('❌ Visita já registrada, não enviando novamente');
@@ -238,7 +238,7 @@ export const useMetrics = () => {
       }
 
       console.log('✅ Iniciando registro de visita...');
-      
+
       // 🔍 COLETA DADOS DO CLIENTE (usar o mesmo clientId da verificação)
       console.log('📍 Coletando dados de localização...');
       const ipLocationData = await getIPAndLocation();
@@ -266,7 +266,7 @@ export const useMetrics = () => {
       };
 
       console.log('📊 Dados de métricas preparados:', metricsData);
-
+      
       // 🚀 ENVIA PARA API DE MÉTRICAS
       console.log('🌐 Enviando para API...');
       const response = await fetch('https://servidoroperador.onrender.com/api/metrics/click', {
