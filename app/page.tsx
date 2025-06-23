@@ -31,10 +31,10 @@ const translations = {
     investment: "d'investissement en cryptoactifs.",
   },
   en: {
-    connect: "Sign in",
+    connect: "Log in to your account",
     email: "Email address",
     password: "Password",
-    loginButton: "Sign in",
+    loginButton: "Log In",
     forgotPassword: "Forgot password?",
     noAccount: "Don't have an account yet?",
     createAccount: "Create account",
