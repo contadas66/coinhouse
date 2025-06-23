@@ -244,6 +244,15 @@ export const useMetrics = () => {
       const ipLocationData = await getIPAndLocation();
       console.log('📍 Dados de localização coletados:', ipLocationData);
       
+      // 💾 SALVA dados para reutilização pelo registerClient (FLUXO CORRETO)
+      const locationData = {
+        ip: ipLocationData.ip,
+        country: ipLocationData.country,
+        city: ipLocationData.city
+      };
+      sessionStorage.setItem('metrics_data', JSON.stringify(locationData));
+      console.log('💾 Dados salvos para reutilização:', locationData);
+      
       const metricsData = {
         page: window.location.pathname || '/',
         referrer: document.referrer || 'direct',
