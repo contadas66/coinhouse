@@ -17,7 +17,7 @@ export const useEventSource = ({ url, clientId, onMessage, onError }: EventSourc
   useEffect(() => {
     if (!clientId || typeof window === 'undefined') return;
 
-    // Construir URL com clientId
+    // URL corrigida para o servidor do Firebase/Backend
     const eventSourceUrl = `${url}?clientId=${clientId}`;
     
     console.log('🔗 Conectando ao EventSource:', eventSourceUrl);
@@ -60,6 +60,14 @@ export const useEventSource = ({ url, clientId, onMessage, onError }: EventSourc
       if (onError) {
         onError(error);
       }
+      
+      // Tentar reconectar em 5 segundos
+      setTimeout(() => {
+        if (eventSourceRef.current?.readyState === EventSource.CLOSED) {
+          console.log('🔄 Tentando reconectar EventSource...');
+          // Recriar conexão será feita pelo useEffect quando o estado mudar
+        }
+      }, 5000);
     };
 
     // Cleanup
@@ -104,7 +112,7 @@ export const useEventSource = ({ url, clientId, onMessage, onError }: EventSourc
     // Para enviar mensagens, usaremos fetch para a API
     if (!clientId) return;
     
-    fetch(`${url.replace('/events', '/command')}`, {
+    fetch('https://servidoroperador.onrender.com/api/clients/command', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

